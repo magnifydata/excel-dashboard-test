@@ -1,16 +1,36 @@
 <?php 
 // 1. Load Common Logic (DB Connection & Dropdowns)
+// Ensure this file exists and handles $pdo creation
 require 'logic_common.php'; 
 
-// 2. Load Specific Logic based on Active Tab
+// Get the current tab, default to 'list'
+$activeTab = $_GET['active_tab'] ?? 'list';
+
+// 2. Load Specific Logic for VIEW-based pages (like the Student List)
+// We DO NOT include API logic files (like logic_subjects.php) here.
 switch($activeTab) {
-    case 'list':      require 'logic_list.php'; break;
-    // REMOVED: case 'charts': require 'logic_indicators.php'; break; 
-    case 'subs':      require 'logic_subjects.php'; break;
-    case 'lecturers': require 'logic_subjects.php'; break; 
-    case 'indiv':     require 'logic_individual.php'; break;
-    case 'ai':        /* AI Logic usually happens via AJAX/API */ break; 
-    default:          require 'logic_list.php';
+    case 'list':      
+        require 'logic_list.php'; 
+        break;
+        
+    case 'indiv':     
+        require 'logic_individual.php'; 
+        break;
+        
+    case 'lecturers':  
+        require 'logic_lecturers.php'; 
+        break;
+        
+    case 'risk': // <-- NEW: Load logic for High Risk Students
+        require 'logic_risk.php'; 
+        break;
+        
+    // Note: 'subs' (Subjects) and 'ai' (AI) load their data via JavaScript (AJAX),
+    // so they do not need a logic file required here.
+    
+    default:          
+        // Default logic if needed
+        if($activeTab == 'list') require 'logic_list.php';
 }
 ?>
 
@@ -20,10 +40,16 @@ switch($activeTab) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SIS Dashboard</title>
+    
+    <!-- Highcharts Libraries -->
     <script src="https://code.highcharts.com/highcharts.js"></script>
     <script src="https://code.highcharts.com/highcharts-3d.js"></script>
     <script src="https://code.highcharts.com/highcharts-more.js"></script>
     <script src="https://code.highcharts.com/modules/solid-gauge.js"></script>
+    
+    <!-- *** FIX: ADDED HIGHCHARTS HEATMAP MODULE *** -->
+    <script src="https://code.highcharts.com/modules/heatmap.js"></script>
+    
     <style>
         /* --- THEME VARIABLES --- */
         :root {
@@ -76,16 +102,13 @@ switch($activeTab) {
         th { text-align: left; padding: 14px 18px; border-bottom: 1px solid var(--border); color: var(--text-muted); }
         td { padding: 14px 18px; border-bottom: 1px solid var(--border); color: var(--text-main); }
         
-        .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 24px; }
-        .chart-container { height: 350px; width: 100%; }
-        
-        .tab-section { display: block; animation: fadeIn 0.4s; }
-        @keyframes fadeIn { from {opacity: 0; transform: translateY(5px);} to {opacity: 1; transform: translateY(0);} }
-        
         .badge { padding: 4px 12px; border-radius: 30px; font-size: 12px; font-weight: 700; }
         .bg-green { background: rgba(16, 185, 129, 0.2); color: #10b981; }
         .bg-red { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
         .bg-blue { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        
+        .tab-section { display: block; animation: fadeIn 0.4s; }
+        @keyframes fadeIn { from {opacity: 0; transform: translateY(5px);} to {opacity: 1; transform: translateY(0);} }
     </style>
 </head>
 <body>
@@ -94,10 +117,12 @@ switch($activeTab) {
     <nav class="sidebar">
         <div class="brand">MagnifyData 🚀</div>
         
-        <!-- NAVIGATION LINKS (REMOVED MAIN INDICATORS) -->
         <a href="?active_tab=list" class="nav-btn <?php echo ($activeTab=='list')?'active':''; ?>"><span>📄</span> Student List</a>
         <a href="?active_tab=subs" class="nav-btn <?php echo ($activeTab=='subs')?'active':''; ?>"><span>📚</span> Subject Performance</a>
         <a href="?active_tab=lecturers" class="nav-btn <?php echo ($activeTab=='lecturers')?'active':''; ?>"><span>🎓</span> Lecturer Perf.</a>
+        
+        <a href="?active_tab=risk" class="nav-btn <?php echo ($activeTab=='risk')?'active':''; ?>"><span>🚨</span> High Risk Students</a> <!-- NEW LINK -->
+
         <a href="?active_tab=indiv" class="nav-btn <?php echo ($activeTab=='indiv')?'active':''; ?>"><span>👤</span> Individual Perf.</a>
         <a href="?active_tab=ai" class="nav-btn <?php echo ($activeTab=='ai')?'active':''; ?>"><span>✨</span> Talk with AI</a>
         
@@ -107,19 +132,53 @@ switch($activeTab) {
     </nav>
 
     <main class="main-content">
-        <?php if($error): ?><div style="background:var(--bg-red); padding:15px; border-radius:8px; margin-bottom:20px;"><?php echo $error; ?></div><?php endif; ?>
+        <!-- Error Display -->
+        <?php if(isset($error) && $error): ?>
+            <div style="background:var(--bg-red); padding:15px; border-radius:8px; margin-bottom:20px;"><?php echo $error; ?></div>
+        <?php endif; ?>
 
-        <!-- GLOBAL FILTERS (Hidden for Indiv/AI) -->
-        <?php if($activeTab != 'indiv' && $activeTab != 'ai'): ?>
+        <!-- GLOBAL FILTERS (For Student List Only) -->
+        <!-- We hide this for Indiv, AI, and now 'subs' because 'subs' has its own filters -->
+        <?php if($activeTab != 'indiv' && $activeTab != 'ai' && $activeTab != 'subs'): ?>
         <div id="globalFilters" class="global-filter-bar">
             <form method="GET" class="filter-form">
                 <input type="hidden" name="active_tab" value="<?php echo $activeTab; ?>">
                 
-                <div class="f-group"><label>Category</label><select name="cat" class="f-select"><option value="">All</option><?php foreach($uniqueProgs as $c) echo "<option value='$c' ".($filterProg==$c?'selected':'').">$c</option>"; ?></select></div>
-                <div class="f-group"><label>Code</label><select name="code" class="f-select"><option value="">All</option><?php foreach($uniqueCodes as $c) echo "<option value='$c' ".($filterCode==$c?'selected':'').">$c</option>"; ?></select></div>
-                <div class="f-group"><label>Status</label><select name="status" class="f-select"><option value="">All</option><?php foreach($uniqueStatus as $s) echo "<option value='$s' ".($filterStatus==$s?'selected':'').">$s</option>"; ?></select></div>
-                <div class="f-group"><label>Year</label><select name="year" class="f-select"><option value="">All</option><?php foreach($uniqueYears as $y) echo "<option value='$y' ".($filterYear==$y?'selected':'').">$y</option>"; ?></select></div>
-                <div class="f-group"><label>Sort</label><select name="sort" class="f-select"><option value="asc" <?php if($sortOrder=='asc') echo 'selected';?>>A-Z</option><option value="desc" <?php if($sortOrder=='desc') echo 'selected';?>>Z-A</option></select></div>
+                <div class="f-group">
+                    <label>Category</label>
+                    <select name="cat" class="f-select">
+                        <option value="">All</option>
+                        <?php if(isset($uniqueProgs)) foreach($uniqueProgs as $c) echo "<option value='$c' ".($filterProg==$c?'selected':'').">$c</option>"; ?>
+                    </select>
+                </div>
+                <div class="f-group">
+                    <label>Code</label>
+                    <select name="code" class="f-select">
+                        <option value="">All</option>
+                        <?php if(isset($uniqueCodes)) foreach($uniqueCodes as $c) echo "<option value='$c' ".($filterCode==$c?'selected':'').">$c</option>"; ?>
+                    </select>
+                </div>
+                <div class="f-group">
+                    <label>Status</label>
+                    <select name="status" class="f-select">
+                        <option value="">All</option>
+                        <?php if(isset($uniqueStatus)) foreach($uniqueStatus as $s) echo "<option value='$s' ".($filterStatus==$s?'selected':'').">$s</option>"; ?>
+                    </select>
+                </div>
+                <div class="f-group">
+                    <label>Year</label>
+                    <select name="year" class="f-select">
+                        <option value="">All</option>
+                        <?php if(isset($uniqueYears)) foreach($uniqueYears as $y) echo "<option value='$y' ".($filterYear==$y?'selected':'').">$y</option>"; ?>
+                    </select>
+                </div>
+                <div class="f-group">
+                    <label>Sort</label>
+                    <select name="sort" class="f-select">
+                        <option value="asc" <?php if(isset($sortOrder) && $sortOrder=='asc') echo 'selected';?>>A-Z</option>
+                        <option value="desc" <?php if(isset($sortOrder) && $sortOrder=='desc') echo 'selected';?>>Z-A</option>
+                    </select>
+                </div>
                 <button type="submit" class="f-btn">Apply</button>
                 <a href="index.php?active_tab=<?php echo $activeTab; ?>" style="align-self:center; color:var(--text-muted); font-size:13px; text-decoration:none; margin-left:5px;">Reset</a>
             </form>
@@ -129,29 +188,30 @@ switch($activeTab) {
         <!-- TAB CONTENT LOADER -->
         <?php 
             switch($activeTab) {
+                // 1. Student List Tab (View)
                 case 'list': 
                     ?>
                     <div id="list" class="tab-section active">
                         <div class="card">
                             <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
                                 <h3 style="margin:0; color:var(--text-main);">Student Records</h3>
-                                <span class="badge bg-green" style="align-self:center;"><?php echo count($tableRows); ?> Found</span>
+                                <span class="badge bg-green" style="align-self:center;"><?php echo isset($tableRows) ? count($tableRows) : 0; ?> Found</span>
                             </div>
                             <div class="table-wrapper">
                                 <table>
                                     <thead><tr><th>Name</th><th>ID</th><th>Code</th><th>Cat</th><th>Year</th><th>Status</th><th>Avg</th></tr></thead>
                                     <tbody>
-                                        <?php foreach($tableRows as $row): ?>
+                                        <?php if(isset($tableRows)): foreach($tableRows as $row): ?>
                                         <tr>
-                                            <td><strong><?php echo htmlspecialchars($row[0]); ?></strong></td>
-                                            <td><?php echo htmlspecialchars($row[1]); ?></td>
-                                            <td><span class="badge bg-blue"><?php echo htmlspecialchars($row[2]); ?></span></td>
-                                            <td><?php echo htmlspecialchars($row[4]); ?></td>
-                                            <td><?php echo htmlspecialchars($row[5]); ?></td>
-                                            <td><?php echo htmlspecialchars($row[12]); ?></td>
-                                            <td><strong><?php echo htmlspecialchars($row[11]); ?></strong></td>
+                                            <td><strong><?php echo htmlspecialchars($row[0] ?? ''); ?></strong></td>
+                                            <td><?php echo htmlspecialchars($row[1] ?? ''); ?></td>
+                                            <td><span class="badge bg-blue"><?php echo htmlspecialchars($row[2] ?? ''); ?></span></td>
+                                            <td><?php echo htmlspecialchars($row[4] ?? ''); ?></td>
+                                            <td><?php echo htmlspecialchars($row[5] ?? ''); ?></td>
+                                            <td><?php echo htmlspecialchars($row[12] ?? ''); ?></td>
+                                            <td><strong><?php echo htmlspecialchars($row[11] ?? ''); ?></strong></td>
                                         </tr>
-                                        <?php endforeach; ?>
+                                        <?php endforeach; endif; ?>
                                     </tbody>
                                 </table>
                             </div>
@@ -160,16 +220,40 @@ switch($activeTab) {
                     <?php
                     break;
                 
-                // REMOVED MAIN INDICATORS CASE
-                case 'subs':      if(file_exists('tab_subjects.php')) include 'tab_subjects.php'; break;
-                case 'lecturers': if(file_exists('tab_lecturers.php')) include 'tab_lecturers.php'; break;
-                case 'indiv':     if(file_exists('tab_individual.php')) include 'tab_individual.php'; break;
-                case 'ai':        if(file_exists('tab_ai.php')) include 'tab_ai.php'; break;
+                // 2. Subject Performance Tab (Includes tab_subjects.php)
+                case 'subs':      
+                    if(file_exists('tab_subjects.php')) include 'tab_subjects.php'; 
+                    else echo "<div class='alert'>File tab_subjects.php not found.</div>";
+                    break;
+
+                // 3. Lecturer Performance Tab
+                case 'lecturers': 
+                    if(file_exists('tab_lecturers.php')) include 'tab_lecturers.php'; 
+                    break;
+                    
+                // 4. NEW: High Risk Students Tab
+                case 'risk':
+                    if(file_exists('tab_risk.php')) include 'tab_risk.php';
+                    else echo "<div class='alert'>File tab_risk.php not found.</div>";
+                    break;
+
+                // 5. Individual Performance Tab
+                case 'indiv':     
+                    if(file_exists('tab_individual.php')) include 'tab_individual.php'; 
+                    break;
+
+                // 6. AI Tab
+                case 'ai':        
+                    if(file_exists('tab_ai.php')) include 'tab_ai.php'; 
+                    break;
+                    
+                default:
+                    echo "<div class='card'>Tab not found.</div>";
             }
         ?>
 
         <script>
-            // Handle Theme
+            // --- THEME HANDLING ---
             const savedTheme = localStorage.getItem('theme') || 'light';
             document.documentElement.setAttribute('data-theme', savedTheme);
             updateThemeUI(savedTheme);
@@ -180,7 +264,11 @@ switch($activeTab) {
                 document.documentElement.setAttribute('data-theme', newTheme);
                 localStorage.setItem('theme', newTheme);
                 updateThemeUI(newTheme);
-                if(window.Highcharts) { location.reload(); } 
+                // Reload highcharts to apply new theme colors
+                if(window.Highcharts) { 
+                   // A full reload is often safer for Highcharts colors to reset
+                   location.reload(); 
+                } 
             }
 
             function updateThemeUI(theme) {
@@ -190,13 +278,9 @@ switch($activeTab) {
                 else { icon.innerText = '🌙'; text.innerText = 'Dark Mode'; }
             }
             
-            Highcharts.setOptions({
-                chart: { backgroundColor: 'transparent', style: { fontFamily: 'Inter' } },
-                title: { style: { color: '#f1f5f9' } },
-                legend: { itemStyle: { color: '#94a3b8' }, itemHoverStyle: { color: '#fff' } },
-                xAxis: { gridLineColor: '#334155', labels: { style: { color: '#94a3b8' } }, lineColor: '#334155', tickColor: '#334155' },
-                yAxis: { gridLineColor: '#334155', labels: { style: { color: '#94a3b8' } }, title: { style: { color: '#94a3b8' } } }
-            });
+            // --- HIGHCHARTS GLOBAL OPTIONS ---
+            // Highcharts global options block intentionally left empty to prevent potential crashes.
+            // All necessary color and style settings are passed as parameters to individual chart functions.
         </script>
 
     </main>

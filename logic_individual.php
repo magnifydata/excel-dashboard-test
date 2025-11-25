@@ -4,7 +4,8 @@
  * FILE: logic_individual.php
  * PURPOSE: 
  *   1. Fetches Global Subject Averages and Global Semester Averages (for context).
- *   2. Fetches the Master List of ALL students (unfiltered by global dropdowns).
+ *   2. Fetches the Master List of ALL students (unfiltered by global dropdowns), 
+ *      including NEW: Nationality.
  *   3. Packs specific student data (Subjects, Marks, GPA History) into a JSON payload.
  * 
  * USED BY: 
@@ -28,7 +29,7 @@ while($r = $stmt->fetch(PDO::FETCH_ASSOC)) $globalSemesterAvgs[$r['semester_no']
 $sql = "
     SELECT 
         s.student_id, s.name, s.gender, s.level_category as prog, s.level_code, s.status,
-        SUBSTR(s.intake_no, 1, 4) as year, AVG(r.marks) as avg_mark,
+        SUBSTR(s.intake_no, 1, 4) as year, s.nationality, AVG(r.marks) as avg_mark,
         
         -- Get Subjects
         (SELECT GROUP_CONCAT(subject_code || '=' || marks) 
@@ -66,13 +67,16 @@ while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
         }
     }
 
-    // Add to list (Index 14 contains the Semester JSON)
+    // Index Map for JS:
+    // [0] Name, [1] Student ID, [2] Level Code, [3] Gender, [4] Program, [5] Year, [6] Nationality (NEW), [7-11] Unused/Zeros, [12] Avg Mark (FIXED INDEX), [13] Status, [14] Subject List, [15] Semester List
     $allStudentsData[] = [
         $row['name'], $row['student_id'], $row['level_code'], $row['gender'],
-        $row['prog'], $row['year'], 0,0,0,0,0,
-        number_format($row['avg_mark'], 1), $row['status'],
-        json_encode($subList), 
-        json_encode($semHistory) // Index 14
+        $row['prog'], $row['year'], $row['nationality'], // Index 6 is Nationality
+        0,0,0,0,0,
+        number_format($row['avg_mark'], 1), // Index 12 is Avg Mark
+        $row['status'], // Index 13 is Status
+        json_encode($subList), // Index 14
+        json_encode($semHistory) // Index 15
     ];
 }
 

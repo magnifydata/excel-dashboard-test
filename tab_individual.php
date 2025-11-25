@@ -39,7 +39,7 @@
     .sub-subject-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-top: 20px; }
     .sub-card { background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
     .search-row { display: flex; gap: 15px; align-items: flex-end; margin-bottom: 20px; }
-    .student-select, .status-select { width: 100%; padding: 12px; font-size: 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text-main); }
+    .student-select, .status-select, .year-select, .country-select { width: 100%; padding: 12px; font-size: 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text-main); }
     
     /* STATS ROW */
     .stat-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 20px; }
@@ -63,14 +63,35 @@
                 <button onclick="window.print()" style="background:var(--bg-input); color:var(--text-main); border:1px solid var(--border); padding:8px 15px; border-radius:8px; cursor:pointer; font-weight:bold;">🖨️ Print</button>
             </div>
         </div>
+        
+        <!-- UPDATED SEARCH ROW WITH NEW FILTERS -->
         <div class="search-row">
-            <div style="flex:1; max-width: 200px;">
+            <div style="flex:1; max-width: 150px;">
                 <label style="font-size:11px; font-weight:bold; color:var(--text-muted); text-transform:uppercase;">Status</label>
-                <select id="statusFilter" class="status-select">
+                <select id="statusFilter" class="status-select filter-trigger">
                     <option value="">All</option>
                     <?php foreach($uniqueStatus as $s): ?><option value="<?php echo $s; ?>"><?php echo $s; ?></option><?php endforeach; ?>
                 </select>
             </div>
+            
+            <!-- NEW YEAR FILTER -->
+            <div style="flex:1; max-width: 150px;">
+                <label style="font-size:11px; font-weight:bold; color:var(--text-muted); text-transform:uppercase;">Intake Year</label>
+                <select id="yearFilter" class="year-select filter-trigger">
+                    <option value="">All</option>
+                    <?php foreach($uniqueYears as $y): ?><option value="<?php echo $y; ?>"><?php echo $y; ?></option><?php endforeach; ?>
+                </select>
+            </div>
+            
+            <!-- NEW COUNTRY FILTER -->
+            <div style="flex:1; max-width: 150px;">
+                <label style="font-size:11px; font-weight:bold; color:var(--text-muted); text-transform:uppercase;">Nationality</label>
+                <select id="countryFilter" class="country-select filter-trigger">
+                    <option value="">All</option>
+                    <!-- Nationality unique list must be dynamically created in JS, as PHP $unique... array does not contain it -->
+                </select>
+            </div>
+
             <div style="flex:2;">
                 <label style="font-size:11px; font-weight:bold; color:var(--text-muted); text-transform:uppercase;">Student Name</label>
                 <select id="studentSelect" class="student-select"><option value="">-- Select --</option></select>
@@ -94,6 +115,7 @@
                         </div>
                         <div><span class="id-stat-label">Programme</span><div id="pProg" class="id-stat-value">--</div></div>
                         <div><span class="id-stat-label">Intake Year</span><div id="pYear" class="id-stat-value">--</div></div>
+                        <div><span class="id-stat-label">Nationality</span><div id="pCountry" class="id-stat-value">--</div></div>
                         <div><span class="id-stat-label">Status</span><div id="pStatus" class="id-stat-value">--</div></div>
                         <div><span class="id-stat-label">Avg Score</span><div id="pAvg" class="id-stat-value" style="color:var(--accent)">--</div></div>
                     </div>
@@ -110,7 +132,7 @@
                 <h4 style="margin:10px 0 5px 0; font-size:12px; color:var(--text-muted); text-transform:uppercase;">Credit Progression</h4>
                 <div id="creditChart" style="height:80px;"></div>
                 <div class="prog-container"><div id="creditFill" class="prog-fill"></div></div>
-                <div id="creditText" class="prog-text">0% Completed</div>
+                <div class="prog-text" id="creditText">0% Completed</div>
             </div>
 
             <!-- RIGHT COL: RADAR & STATS -->
@@ -231,6 +253,8 @@ document.addEventListener("DOMContentLoaded", function() {
     const iData = {
         globalAvgs: <?php echo json_encode($globalSubjectAvgs); ?>,
         globalSemAvgs: <?php echo json_encode($globalSemesterAvgs); ?>,
+        // Student Data Index Map:
+        // [0] Name, [1] Student ID, [2] Level Code, [3] Gender, [4] Program, [5] Year, [6] Nationality (NEW), [7-11] Unused/Zeros, [12] Avg Mark, [13] Status, [14] Subject List, [15] Semester List
         students: <?php echo json_encode($allStudentsData, JSON_HEX_APOS); ?>
     };
 
@@ -239,32 +263,60 @@ document.addEventListener("DOMContentLoaded", function() {
     const xCategories = []; for(let i=0; i<=100; i+=5) xCategories.push(i);
     if(iData.students) { 
         iData.students.forEach(s => { 
-            const b = Math.round(parseFloat(s[11])/5); 
+            const b = Math.round(parseFloat(s[12])/5); // Note: Index 12 is now Avg Mark
             if(b>=0 && b<=20) distributionData[b]++; 
         }); 
     }
 
     const sel = document.getElementById('studentSelect');
     const statFilter = document.getElementById('statusFilter');
+    const yearFilter = document.getElementById('yearFilter'); // NEW
+    const countryFilter = document.getElementById('countryFilter'); // NEW
 
-    function populateStudents(filterStatus) {
+    // 1. Populate Nationality Filter
+    const uniqueCountries = [...new Set(iData.students.map(s => s[6]))].filter(n => n && n !== 'N/A').sort();
+    countryFilter.innerHTML = '<option value="">All</option>';
+    uniqueCountries.forEach(country => {
+        const opt = document.createElement('option');
+        opt.value = country; opt.text = country; 
+        countryFilter.appendChild(opt);
+    });
+
+
+    function populateStudents() {
+        // Get filter values
+        const filterStatus = statFilter.value;
+        const filterYear = yearFilter.value;
+        const filterCountry = countryFilter.value;
+        
         sel.innerHTML = '<option value="">-- Select --</option>';
+        document.getElementById('studentProfile').style.display = 'none';
+
         if (iData.students) {
             iData.students.forEach((s, i) => {
-                if (filterStatus === "" || s[12] === filterStatus) {
+                // Check if student passes all current filters
+                const passesStatus = filterStatus === "" || s[13] === filterStatus;
+                const passesYear = filterYear === "" || s[5] === filterYear;
+                const passesCountry = filterCountry === "" || s[6] === filterCountry;
+
+                if (passesStatus && passesYear && passesCountry) {
                     const opt = document.createElement('option');
-                    opt.value = i; opt.text = s[0] + " (" + s[4] + " - " + s[5] + ")"; 
+                    // Display: Name (Program - Year)
+                    opt.value = i; 
+                    opt.text = `${s[0]} (${s[4]} - ${s[5]})`; 
                     sel.appendChild(opt);
                 }
             });
         }
     }
-    populateStudents("");
+    // Initial Population
+    populateStudents();
 
-    statFilter.addEventListener('change', function() {
-        populateStudents(this.value);
-        document.getElementById('studentProfile').style.display = 'none';
+    // 2. Add Event Listeners to all filter-trigger elements
+    document.querySelectorAll('.filter-trigger').forEach(filter => {
+        filter.addEventListener('change', populateStudents);
     });
+
 
     sel.addEventListener('change', function() {
         const idx = this.value;
@@ -272,16 +324,23 @@ document.addEventListener("DOMContentLoaded", function() {
         if(idx === "") { profile.style.display = 'none'; return; }
         profile.style.display = 'block';
 
+        // Student Data Index Map:
+        // [0] Name, [1] Student ID, [2] Level Code, [3] Gender, [4] Program, [5] Year, [6] Nationality, [12] Avg Mark, [13] Status, [14] Subject List, [15] Semester List
         const s = iData.students[idx];
-        const name = s[0]; const id = s[1]; const myProg = s[4]; const myYear = s[5]; const myScore = parseFloat(s[11]);
-        const myStatus = s[12];
+        const name = s[0]; 
+        const id = s[1]; 
+        const myProg = s[4]; 
+        const myYear = s[5]; 
+        const myCountry = s[6]; // NEW
+        const myScore = parseFloat(s[12]); // Index 12 is now Avg Mark
+        const myStatus = s[13]; // Index 13 is now Status
 
-        const mySubjects = JSON.parse(s[13]); 
+        const mySubjects = JSON.parse(s[14]); 
         const subjectNames = mySubjects.map(sub => sub.code);
         const subjectScores = mySubjects.map(sub => sub.mark);
         const subjectAvgs = mySubjects.map(sub => { return iData.globalAvgs[sub.code] ? iData.globalAvgs[sub.code] : 0; });
 
-        const gpaData = s[14] ? JSON.parse(s[14]) : [];
+        const gpaData = s[15] ? JSON.parse(s[15]) : [];
         const gpaSeries = gpaData.map(x => x.gpa);
         const cgpaSeries = gpaData.map(x => x.cgpa);
         const semLabels = gpaData.map(x => 'Sem ' + x.sem);
@@ -322,8 +381,9 @@ document.addEventListener("DOMContentLoaded", function() {
         document.getElementById('avatar').innerText = name.split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase();
         document.getElementById('pProg').innerText = myProg;
         document.getElementById('pYear').innerText = myYear;
+        document.getElementById('pCountry').innerText = myCountry; // NEW DISPLAY
         document.getElementById('pStatus').innerText = myStatus;
-        document.getElementById('pAvg').innerText = s[11] + "%";
+        document.getElementById('pAvg').innerText = s[12] + "%"; // Index 12
 
         const pct = Math.min(100, Math.round((creditsEarned / totalCredits) * 100));
         document.getElementById('creditFill').style.width = pct + "%";
@@ -342,11 +402,11 @@ document.addEventListener("DOMContentLoaded", function() {
         if (myScore < 10) { rankContainer.style.display = 'none'; } 
         else {
             rankContainer.style.display = 'grid';
-            const progPeers = iData.students.filter(st => st[4] === myProg); progPeers.sort((a,b)=>parseFloat(b[11])-parseFloat(a[11]));
+            const progPeers = iData.students.filter(st => st[4] === myProg); progPeers.sort((a,b)=>parseFloat(b[12])-parseFloat(a[12]));
             const progRank = progPeers.findIndex(st => st === s) + 1;
             document.getElementById('rankProgDisplay').innerText = `#${progRank} / ${progPeers.length}`;
             
-            const yearPeers = iData.students.filter(st => st[5] === myYear); yearPeers.sort((a,b)=>parseFloat(b[11])-parseFloat(a[11]));
+            const yearPeers = iData.students.filter(st => st[5] === myYear); yearPeers.sort((a,b)=>parseFloat(b[12])-parseFloat(a[12]));
             const yearRank = yearPeers.findIndex(st => st === s) + 1;
             document.getElementById('rankYearDisplay').innerText = `#${yearRank} / ${yearPeers.length}`;
             
@@ -413,7 +473,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
         try {
             Highcharts.chart('creditChart', {
-                chart: { type: 'bar', height: 100 }, title: { text: '' }, xAxis: { categories: ['Credits'], visible: false }, yAxis: { min: 0, max: totalCredits, visible: false }, legend: { enabled: false },
+                chart: { type: 'bar', height: 100 }, title: { text: '' }, xAxis: { categories: [''], visible: false }, yAxis: { min: 0, max: totalCredits, visible: false }, legend: { enabled: false },
                 plotOptions: { series: { stacking: 'normal', pointWidth: 25 } },
                 series: [{ name: 'Earned', data: [creditsEarned], color: '#3b82f6' }, { name: 'Remaining', data: [totalCredits - creditsEarned], color: '#10b981' }]
             });
