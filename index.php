@@ -1,13 +1,23 @@
 <?php 
 // 1. Load Common Logic (DB Connection & Dropdowns)
-// Ensure this file exists and handles $pdo creation
 require 'logic_common.php'; 
+
+// --- AUTHORIZATION LOGIC ---
+$isLoggedIn = $_SESSION['logged_in'] ?? false;
+$userRole = $_SESSION['role'] ?? 'guest';
+$isAdmin = ($userRole === 'admin');
+
+// ---------------------------
 
 // Get the current tab, default to 'list'
 $activeTab = $_GET['active_tab'] ?? 'list';
 
-// 2. Load Specific Logic for VIEW-based pages (like the Student List)
-// We DO NOT include API logic files (like logic_subjects.php) here.
+// Define array of active academic tabs to check if the master tab should be open
+$academicTabs = ['list', 'subs', 'lecturers', 'risk', 'indiv'];
+// FIXED: Added 'user_crud' to Maintenance tabs at the top
+$maintenanceTabs = ['academic_crud', 'marketing_crud', 'finance_crud', 'user_crud']; 
+
+// 2. Load Specific Logic for VIEW-based pages (Access Control Check in this block)
 switch($activeTab) {
     case 'list':      
         require 'logic_list.php'; 
@@ -21,15 +31,31 @@ switch($activeTab) {
         require 'logic_lecturers.php'; 
         break;
         
-    case 'risk': // <-- NEW: Load logic for High Risk Students
+    case 'risk': 
+        // Access Control: High Risk is Admin only
+        if (!$isAdmin) {
+             header('Location: index.php?active_tab=list');
+             exit;
+        }
         require 'logic_risk.php'; 
         break;
         
-    // Note: 'subs' (Subjects) and 'ai' (AI) load their data via JavaScript (AJAX),
-    // so they do not need a logic file required here.
-    
+    // Placeholder logic loads for the new tabs (Admin-only access)
+    case 'user_crud': // NEW: Add this case check here
+    case 'academic_crud':
+    case 'marketing_crud':
+    case 'finance_crud':
+    case 'marketing_dashboard':
+    case 'finance_dashboard':
+        // Access Control: All Management/CRUD tabs are Admin only
+        if (!$isAdmin) {
+             header('Location: index.php?active_tab=list');
+             exit;
+        }
+        // No logic file needed yet
+        break;
+        
     default:          
-        // Default logic if needed
         if($activeTab == 'list') require 'logic_list.php';
 }
 ?>
@@ -109,6 +135,39 @@ switch($activeTab) {
         
         .tab-section { display: block; animation: fadeIn 0.4s; }
         @keyframes fadeIn { from {opacity: 0; transform: translateY(5px);} to {opacity: 1; transform: translateY(0);} }
+        
+        /* --- NEW MASTER TAB STYLES --- */
+        .master-tab { margin-bottom: 5px; }
+        /* Reset default marker and add custom +/- sign */
+        .master-summary { 
+            position: relative; 
+            list-style: none;
+            padding-left: 30px; /* Space for the marker */
+        }
+        .master-summary::-webkit-details-marker { display: none; } /* Chrome/Safari */
+        .master-summary::marker { display: none; } /* Firefox */
+        .master-summary::before {
+            content: '+'; /* Default collapsed state */
+            font-size: 16px;
+            font-weight: 700;
+            position: absolute;
+            left: 10px;
+            color: inherit;
+            transition: transform 0.2s;
+        }
+        .master-tab[open] > .master-summary::before {
+            content: '−'; /* Expanded state */
+            transform: rotate(0deg);
+        }
+        /* Shift content for sub-tabs */
+        .sub-tab { 
+            padding-left: 40px !important; /* Push sub-tabs right */
+            font-size: 14px !important; /* Slightly smaller font */
+            margin-bottom: 0px !important; /* Tighter grouping */
+        }
+        .sub-tab span {
+            font-size: 16px;
+        }
     </style>
 </head>
 <body>
@@ -117,15 +176,75 @@ switch($activeTab) {
     <nav class="sidebar">
         <div class="brand">MagnifyData 🚀</div>
         
-        <a href="?active_tab=list" class="nav-btn <?php echo ($activeTab=='list')?'active':''; ?>"><span>📄</span> Student List</a>
-        <a href="?active_tab=subs" class="nav-btn <?php echo ($activeTab=='subs')?'active':''; ?>"><span>📚</span> Subject Performance</a>
-        <a href="?active_tab=lecturers" class="nav-btn <?php echo ($activeTab=='lecturers')?'active':''; ?>"><span>🎓</span> Lecturer Perf.</a>
+        <!-- DISPLAY USER INFO -->
+        <div style="font-size:12px; color:#94a3b8; margin-bottom:20px; border-bottom:1px solid #334155; padding-bottom:10px;">
+            Logged in as: <strong><?php echo $_SESSION['name'] ?? 'Guest'; ?></strong> (<?php echo strtoupper($_SESSION['role'] ?? 'GUEST'); ?>)
+        </div>
         
-        <a href="?active_tab=risk" class="nav-btn <?php echo ($activeTab=='risk')?'active':''; ?>"><span>🚨</span> High Risk Students</a> <!-- NEW LINK -->
+        <!-- --- 1. ACADEMIC MASTER TAB --- -->
+        <details class="master-tab" <?php echo (in_array($activeTab, $academicTabs)) ? 'open' : ''; ?>>
+            <summary class="nav-btn master-summary">
+                <span>🎓</span> Academic
+            </summary>
+            <!-- Sub-Tabs (ALWAYS VISIBLE) -->
+            <a href="?active_tab=list" class="nav-btn sub-tab <?php echo ($activeTab=='list')?'active':''; ?>"><span>&bull;</span> Student List</a>
+            <a href="?active_tab=subs" class="nav-btn sub-tab <?php echo ($activeTab=='subs')?'active':''; ?>"><span>&bull;</span> Subject Performance</a>
+            <a href="?active_tab=lecturers" class="nav-btn sub-tab <?php echo ($activeTab=='lecturers')?'active':''; ?>"><span>&bull;</span> Module Perf.</a>
+            
+            <?php if ($isAdmin): // ACCESS CONTROL: High Risk Tab is Admin only ?>
+            <a href="?active_tab=risk" class="nav-btn sub-tab <?php echo ($activeTab=='risk')?'active':''; ?>"><span>&bull;</span> High Risk Students</a>
+            <?php endif; ?>
+            
+            <a href="?active_tab=indiv" class="nav-btn sub-tab <?php echo ($activeTab=='indiv')?'active':''; ?>"><span>&bull;</span> Individual Profile</a>
+        </details>
+        
+        <!-- --- 2. MARKETING MASTER TAB (Future) --- -->
+        <?php if ($isAdmin): // ACCESS CONTROL: Marketing Tab is Admin only ?>
+        <details class="master-tab" <?php echo (in_array($activeTab, ['marketing_dashboard'])) ? 'open' : ''; ?>>
+            <summary class="nav-btn master-summary">
+                <span>📈</span> Marketing
+            </summary>
+            <!-- Placeholder for future tabs -->
+            <a href="?active_tab=marketing_dashboard" class="nav-btn sub-tab <?php echo ($activeTab=='marketing_dashboard')?'active':''; ?>"><span>&bull;</span> Enrollment Dashboard</a>
+        </details>
+        <?php endif; ?>
+        
+        <!-- --- 3. FINANCE MASTER TAB (Future) --- -->
+        <?php if ($isAdmin): // ACCESS CONTROL: Finance Tab is Admin only ?>
+        <details class="master-tab" <?php echo (in_array($activeTab, ['finance_dashboard'])) ? 'open' : ''; ?>>
+            <summary class="nav-btn master-summary">
+                <span>💰</span> Finance
+            </summary>
+            <!-- Placeholder for future tabs -->
+            <a href="?active_tab=finance_dashboard" class="nav-btn sub-tab <?php echo ($activeTab=='finance_dashboard')?'active':''; ?>"><span>&bull;</span> Fee Analysis</a>
+        </details>
+        <?php endif; ?>
 
-        <a href="?active_tab=indiv" class="nav-btn <?php echo ($activeTab=='indiv')?'active':''; ?>"><span>👤</span> Individual Perf.</a>
+        <!-- --- 4. MAINTENANCE MASTER TAB --- -->
+        <?php if ($isAdmin): // ACCESS CONTROL: Maintenance Tab and all children are Admin only ?>
+        <details class="master-tab" <?php echo (in_array($activeTab, $maintenanceTabs)) ? 'open' : ''; ?>>
+            <summary class="nav-btn master-summary">
+                <span>🔧</span> Maintenance
+            </summary>
+            <!-- Sub-Tabs (CRUD Operations) -->
+            <!-- NEW: User Data CRUD Tab -->
+            <a href="?active_tab=user_crud" class="nav-btn sub-tab <?php echo ($activeTab=='user_crud')?'active':''; ?>"><span>&bull;</span> User Data CRUD</a> 
+            
+            <a href="?active_tab=academic_crud" class="nav-btn sub-tab <?php echo ($activeTab=='academic_crud')?'active':''; ?>"><span>&bull;</span> Academic Data CRUD</a>
+            <a href="?active_tab=marketing_crud" class="nav-btn sub-tab <?php echo ($activeTab=='marketing_crud')?'active':''; ?>"><span>&bull;</span> Marketing Data CRUD</a>
+            <a href="?active_tab=finance_crud" class="nav-btn sub-tab <?php echo ($activeTab=='finance_crud')?'active':''; ?>"><span>&bull;</span> Finance Data CRUD</a>
+        </details>
+        <?php endif; ?>
+
+        <!-- --- 5. STANDALONE TAB --- -->
         <a href="?active_tab=ai" class="nav-btn <?php echo ($activeTab=='ai')?'active':''; ?>"><span>✨</span> Talk with AI</a>
         
+        <!-- LOGOUT BUTTON -->
+        <!-- NOTE: This link triggers the logout logic in auth.php -->
+        <a href="auth.php?action=logout" class="nav-btn" style="margin-top: 15px; background: #64748b;">
+            <span>🚪</span> Log Out
+        </a>
+
         <button class="theme-toggle" onclick="toggleTheme()">
             <span id="themeIcon">🌙</span> <span id="themeText">Dark Mode</span>
         </button>
@@ -138,8 +257,7 @@ switch($activeTab) {
         <?php endif; ?>
 
         <!-- GLOBAL FILTERS (For Student List Only) -->
-        <!-- We hide this for Indiv, AI, and now 'subs' because 'subs' has its own filters -->
-        <?php if($activeTab != 'indiv' && $activeTab != 'ai' && $activeTab != 'subs'): ?>
+        <?php if($activeTab != 'indiv' && $activeTab != 'ai' && $activeTab != 'subs' && $activeTab != 'risk'): ?>
         <div id="globalFilters" class="global-filter-bar">
             <form method="GET" class="filter-form">
                 <input type="hidden" name="active_tab" value="<?php echo $activeTab; ?>">
@@ -231,7 +349,7 @@ switch($activeTab) {
                     if(file_exists('tab_lecturers.php')) include 'tab_lecturers.php'; 
                     break;
                     
-                // 4. NEW: High Risk Students Tab
+                // 4. High Risk Students Tab
                 case 'risk':
                     if(file_exists('tab_risk.php')) include 'tab_risk.php';
                     else echo "<div class='alert'>File tab_risk.php not found.</div>";
@@ -245,6 +363,21 @@ switch($activeTab) {
                 // 6. AI Tab
                 case 'ai':        
                     if(file_exists('tab_ai.php')) include 'tab_ai.php'; 
+                    break;
+                    
+                // 7. Maintenance Tabs Content Loader
+                case 'user_crud': // NEW: User Management Content
+                    if(file_exists('tab_user_management.php')) include 'tab_user_management.php';
+                    else echo "<div class='card'><h2>User Data CRUD</h2><p>File tab_user_management.php not found. This section is reserved for future implementation.</p></div>";
+                    break;
+                    
+                case 'academic_crud':
+                case 'marketing_dashboard':
+                case 'finance_dashboard':
+                case 'marketing_crud':
+                case 'finance_crud':
+                    $tabName = htmlspecialchars(ucwords(str_replace('_', ' ', $activeTab)));
+                    echo "<div class='card'><h2>" . $tabName . "</h2><p>This section is reserved for future implementation. Only an **Admin** should see this.</p></div>";
                     break;
                     
                 default:

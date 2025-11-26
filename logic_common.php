@@ -6,11 +6,30 @@
  *   1. Establishes the connection to the SQLite Database.
  *   2. Sets performance settings (Memory Limit).
  *   3. Fetches unique values for the Global Filter Dropdowns (Year, Programme, Code, Status).
+ *   CHANGES: Added Session Start and Authentication Check.
  * 
  * USED BY: 
  *   - All Tabs (Required at the top of index.php)
  * --------------------------------------------------------------------------
  */
+
+// --- SECURITY: START SESSION AND CHECK AUTHENTICATION ---
+session_start();
+
+// Define the pages that DON'T require login
+$publicPages = ['login.php', 'auth.php']; 
+
+// Get the current file name
+$currentPage = basename($_SERVER['PHP_SELF']);
+
+// Redirect to login page if not logged in and the current page requires auth
+if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
+    if (!in_array($currentPage, $publicPages)) {
+        header('Location: login.php');
+        exit;
+    }
+}
+// --------------------------------------------------------
 
 // --- PERFORMANCE SETTINGS ---
 ini_set('memory_limit', '512M');
